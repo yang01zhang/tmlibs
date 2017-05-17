@@ -40,9 +40,6 @@ func TestReader(t *testing.T) {
 	r := NewReader(bytes.NewReader(in), 100)
 	start := time.Now()
 
-	// Make sure r implements Limiter
-	_ = Limiter(r)
-
 	// 1st read of 10 bytes is performed immediately
 	if n, err := r.Read(b); n != 10 || err != nil {
 		t.Fatalf("r.Read(b) expected 10 (<nil>); got %v (%v)", n, err)
@@ -79,6 +76,11 @@ func TestReader(t *testing.T) {
 	status[4] = r.Status()
 	status[5] = nextStatus(r.Monitor) // Timeout
 	start = status[0].Start
+
+	// TODO: this is non-deterministic and fails around 50% of the time,
+	// cuz sometimes there is an extra 20ms wait (eg. 320 not 300).
+	// Can we actually get perfect timing on our system?  Or should be
+	// make this test a bit more flexible????
 
 	// Active, Start, Duration, Idle, Bytes, Samples, InstRate, CurRate, AvgRate, PeakRate, BytesRem, TimeRem, Progress
 	want := []Status{
@@ -129,6 +131,11 @@ func TestWriter(t *testing.T) {
 	w.SetTransferSize(100)
 	status := []Status{w.Status(), nextStatus(w.Monitor)}
 	start = status[0].Start
+
+	// TODO: this is non-deterministic and fails around 50% of the time,
+	// cuz sometimes there is an extra 20ms wait (eg. 520 not 500).
+	// Can we actually get perfect timing on our system?  Or should be
+	// make this test a bit more flexible????
 
 	// Active, Start, Duration, Idle, Bytes, Samples, InstRate, CurRate, AvgRate, PeakRate, BytesRem, TimeRem, Progress
 	want := []Status{

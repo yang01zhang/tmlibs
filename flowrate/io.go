@@ -33,6 +33,9 @@ type Reader struct {
 	block bool  // What to do when no new bytes can be read due to the limit
 }
 
+// Make sure *Reader implements Limiter
+var _ Limiter = new(Reader)
+
 // NewReader restricts all Read operations on r to limit bytes per second.
 func NewReader(r io.Reader, limit int64) *Reader {
 	return &Reader{r, New(0, 0), limit, true}
