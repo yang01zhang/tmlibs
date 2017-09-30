@@ -10,6 +10,7 @@ import:
 - package: github.com/pkg/errors
 - package: github.com/spf13/cobra
 - package: github.com/spf13/viper
+- package: github.com/dgraph-io/badger
 - package: github.com/syndtr/goleveldb
   subpackages:
   - leveldb

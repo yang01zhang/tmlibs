@@ -15,6 +15,8 @@ imports:
   version: 1e5f1161c6416a5ff48840eb8724a394e48cc534
   subpackages:
   - currency
+- name: github.com/dgraph-io/badger
+  version: 7f945c8fffd35e73f278fc3f0bce9961398dc1e1
 - name: github.com/go-playground/universal-translator
   version: 71201497bace774495daed26a3874fd339e0b538
 - name: github.com/go-stack/stack
