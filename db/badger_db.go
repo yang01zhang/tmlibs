@@ -165,7 +165,7 @@ func (b *BadgerDB) Close() {
 
 func (b *BadgerDB) Fprint(w io.Writer) {
 	bIter := b.Iterator().(*badgerDBIterator)
-	defer bIter.Close()
+	defer bIter.Release()
 
 	var bw *bufio.Writer
 	if bbw, ok := w.(*bufio.Writer); ok {
@@ -193,6 +193,18 @@ func (b *BadgerDB) Print() {
 }
 
 func (b *BadgerDB) Iterator() Iterator {
+	dbIter := b.kv.NewIterator(badger.IteratorOptions{
+		PrefetchValues: true,
+
+		// Arbitrary PrefetchSize
+		PrefetchSize: 10,
+	})
+	// Ensure that we are always at the zeroth item
+	dbIter.Rewind()
+	return &badgerDBIterator{iter: dbIter}
+}
+
+func (b *BadgerDB) IteratorPrefix(prefix []byte) Iterator {
 	dbIter := b.kv.NewIterator(badger.IteratorOptions{
 		PrefetchValues: true,
 
@@ -315,7 +327,11 @@ func (bi *badgerDBIterator) kv() (key, value []byte) {
 	return bItem.Key(), valueSave
 }
 
-func (bi *badgerDBIterator) Close() {
+func (bi *badgerDBIterator) Error() error {
+	return nil
+}
+
+func (bi *badgerDBIterator) Release() {
 	bi.iter.Close()
 }
 
