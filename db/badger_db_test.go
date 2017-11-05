@@ -85,7 +85,7 @@ func TestBadgerDBSetGet(t *testing.T) {
 
 	for i, tt := range tests {
 		if got := ddb.Get(tt.key); !bytes.Equal(got, nil) {
-			t.Errorf("#%d: Get mismatch\ngot: %x\nwant:nil", i, got, nil)
+			t.Errorf("#%d: Get mismatch\ngot: %x\nwant:nil", i, got)
 		}
 	}
 }
@@ -183,13 +183,13 @@ func TestBadgerDBBatchSet(t *testing.T) {
 	// Verify that no keys have been committed yet.
 	for i, tt := range tests {
 		if got := ddb.Get(tt.key); !bytes.Equal(got, nil) {
-			t.Errorf("#%d: Get mismatch\ngot: %x\nwant:nil", i, got, nil)
+			t.Errorf("#%d: Get mismatch\ngot: %x\nwant:nil", i, got)
 		}
 	}
 
 	batch.Write()
 
-	// Now ensure that wrote the data
+	// Now ensure that we wrote the data
 	for i, tt := range tests {
 		if got, want := ddb.Get(tt.key), tt.value; !bytes.Equal(got, want) {
 			t.Errorf("#%d: Get mismatch\ngot: %x\nwant:%x", i, got, want)

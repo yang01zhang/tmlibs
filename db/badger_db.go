@@ -165,6 +165,7 @@ func (b *BadgerDB) Close() {
 
 func (b *BadgerDB) Fprint(w io.Writer) {
 	bIter := b.Iterator().(*badgerDBIterator)
+
 	defer bIter.Release()
 
 	var bw *bufio.Writer
@@ -274,12 +275,14 @@ func (bb *badgerDBBatch) Write() {
 		}
 	}
 	if buf != nil {
-		common.PanicCrisis(string(buf.Bytes()))
+		common.PanicCrisis(buf.String())
 	}
 }
 
 type badgerDBIterator struct {
 	mu sync.RWMutex
+
+	lastErr error
 
 	iter *badger.Iterator
 }
@@ -287,6 +290,9 @@ type badgerDBIterator struct {
 var _ Iterator = (*badgerDBIterator)(nil)
 
 func (bi *badgerDBIterator) Next() bool {
+	bi.mu.Lock()
+	defer bi.mu.Unlock()
+
 	if !bi.iter.Valid() {
 		return false
 	}
@@ -294,8 +300,17 @@ func (bi *badgerDBIterator) Next() bool {
 	return bi.iter.Valid()
 }
 
-func (bi *badgerDBIterator) Key() []byte { return bi.iter.Item().Key() }
+func (bi *badgerDBIterator) Key() []byte {
+	bi.mu.Lock()
+	defer bi.mu.Unlock()
+
+	return bi.iter.Item().Key()
+}
+
 func (bi *badgerDBIterator) Value() []byte {
+	bi.mu.Lock()
+	defer bi.mu.Unlock()
+
 	var valueSave []byte
 	err := bi.iter.Item().Value(func(origValue []byte) error {
 		valueSave = make([]byte, len(origValue))
@@ -303,8 +318,7 @@ func (bi *badgerDBIterator) Value() []byte {
 		return nil
 	})
 	if err != nil {
-		// TODO: ditto:: Propose allowing DB's Get to return errors too.
-		common.PanicCrisis(err)
+		bi.setLastError(err)
 	}
 	return valueSave
 }
@@ -321,14 +335,22 @@ func (bi *badgerDBIterator) kv() (key, value []byte) {
 		return nil
 	})
 	if err != nil {
-		// TODO: ditto:: Propose allowing DB's Get to return errors too.
-		common.PanicCrisis(err)
+		bi.setLastError(err)
 	}
 	return bItem.Key(), valueSave
 }
 
 func (bi *badgerDBIterator) Error() error {
-	return nil
+	bi.mu.RLock()
+	err := bi.lastErr
+	bi.mu.RUnlock()
+	return err
+}
+
+func (bi *badgerDBIterator) setLastError(err error) {
+	bi.mu.Lock()
+	bi.lastErr = err
+	bi.mu.Unlock()
 }
 
 func (bi *badgerDBIterator) Release() {
