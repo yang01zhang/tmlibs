@@ -180,13 +180,9 @@ func TestBadgerDBBatchSet(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Verify that no keys have been committed yet.
-	for i, tt := range tests {
-		if got := ddb.Get(tt.key); !bytes.Equal(got, nil) {
-			t.Errorf("#%d: Get mismatch\ngot: %x\nwant:nil", i, got)
-		}
-	}
-
+	// Unfortunately the maintained BadgerDB v1.0 as of Sun  5 Nov 2017
+	// doesn't have a "Batch" hence we can't test that writes
+	// haven't yet been committed to disk
 	batch.Write()
 
 	// Now ensure that we wrote the data
@@ -256,32 +252,7 @@ func TestBadgerDBIterator(t *testing.T) {
 	require.Equal(t, 0, len(rawLog), "expected all log entries to have been matched and trimmed out")
 }
 
-var benchmarkData = []struct {
-	key, value []byte
-}{
-	{common.RandBytes(100), nil},
-	{common.RandBytes(1000), []byte("foo")},
-	{[]byte("foo"), common.RandBytes(1000)},
-	{[]byte(""), common.RandBytes(1000)},
-	{nil, common.RandBytes(1000000)},
-	{common.RandBytes(100000), nil},
-	{common.RandBytes(1000000), nil},
-}
-
-func BenchmarkBadgerDBSet(b *testing.B) {
-	ddb, tearDown := setupBadgerDB(nil)
-	defer tearDown()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		for _, tt := range benchmarkData {
-			ddb.Set(tt.key, tt.value)
-		}
-	}
-	b.ReportAllocs()
-}
-
-func BenchmarkBadgerDBSetSync(b *testing.B) {
+func BenchmarkSetBadgerDB(b *testing.B) {
 	ddb, tearDown := setupBadgerDB(nil)
 	defer tearDown()
 
@@ -294,32 +265,43 @@ func BenchmarkBadgerDBSetSync(b *testing.B) {
 	b.ReportAllocs()
 }
 
-func BenchmarkBadgerDBBatchSet(b *testing.B) {
+func BenchmarkSetSyncBadgerDB(b *testing.B) {
 	ddb, tearDown := setupBadgerDB(nil)
 	defer tearDown()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		batch := ddb.NewBatch()
 		for _, tt := range benchmarkData {
-			batch.Set(tt.key, tt.value)
+			ddb.SetSync(tt.key, tt.value)
 		}
-		batch.Write()
 	}
 	b.ReportAllocs()
 }
 
-func BenchmarkBadgerDBSetDelete(b *testing.B) {
+func BenchmarkBatchSetBadgerDB(b *testing.B) {
 	ddb, tearDown := setupBadgerDB(nil)
 	defer tearDown()
 
-	for i := 0; i < b.N; i++ {
-		for _, tt := range benchmarkData {
-			ddb.Set(tt.key, tt.value)
-		}
-		for _, tt := range benchmarkData {
-			ddb.Delete(tt.key)
-		}
-	}
-	b.ReportAllocs()
+	benchmarkBatchSet(b, ddb)
+}
+
+func BenchmarkSetDeleteBadgerDB(b *testing.B) {
+	ddb, tearDown := setupBadgerDB(nil)
+	defer tearDown()
+
+	benchmarkSetDelete(b, ddb)
+}
+
+func BenchmarkRandomReadsWritesBadgerDB(b *testing.B) {
+	db, tearDown := setupBadgerDB(nil)
+	defer tearDown()
+
+	benchmarkRandomReadsWritesOnDB(b, db)
+}
+
+func BenchmarkBatchSetDeleteBadgerDB(b *testing.B) {
+	db, tearDown := setupBadgerDB(nil)
+	defer tearDown()
+
+	benchmarkBatchSetDelete(b, db)
 }

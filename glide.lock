@@ -4,7 +4,7 @@ imports:
 - name: github.com/AndreasBriese/bbloom
   version: 28f7e881ca57bc00e028f9ede9f0d9104cfeef5e
 - name: github.com/dgraph-io/badger
-  version: 7f945c8fffd35e73f278fc3f0bce9961398dc1e1
+  version: 6c5c93205b5571967bd2efb350697947ad942221
   subpackages:
   - options
   - protos

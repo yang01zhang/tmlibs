@@ -42,7 +42,6 @@ package db
 
 import (
 	"bufio"
-	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -92,7 +91,7 @@ func NewBadgerDB(dbName, dir string) (*BadgerDB, error) {
 // gives the flexibility of initializing a database with the
 // respective options.
 func NewBadgerDBWithOptions(opts *Options) (*BadgerDB, error) {
-	kv, err := badger.NewKV((*badger.Options)(opts))
+	kv, err := badger.Open(*(*badger.Options)(opts))
 	if err != nil {
 		return nil, err
 	}
@@ -100,72 +99,77 @@ func NewBadgerDBWithOptions(opts *Options) (*BadgerDB, error) {
 }
 
 type BadgerDB struct {
-	kv *badger.KV
+	kv *badger.DB
+
+	// closeOnce ensure that Close is invoked
+	// only once since BadgerDB uses a channel
+	// that when already closed will panic
+	// yet serving no other purpose to the DB.
+	closeOnce sync.Once
 }
 
 var _ DB = (*BadgerDB)(nil)
 
+const (
+	readOnly  = false
+	readWrite = true
+)
+
 func (b *BadgerDB) Get(key []byte) []byte {
-	valueItem := new(badger.KVItem)
-	if err := b.kv.Get(key, valueItem); err != nil {
-		// Unfortunate that Get can't return errors
-		// TODO: Propose allowing DB's Get to return errors too.
-		common.PanicCrisis(err)
+	tx := b.kv.NewTransaction(readOnly)
+	defer tx.Discard()
+
+	kvItem, err := tx.Get(key)
+	if err != nil {
+		switch err {
+		case badger.ErrKeyNotFound:
+			return nil
+		default:
+			// Unfortunate that Get can't return errors
+			// TODO: Propose allowing DB's Get to return errors too.
+			common.PanicCrisis(err)
+		}
 	}
-	var valueSave []byte
-	err := valueItem.Value(func(origValue []byte) error {
-		// TODO: Decide if we should just assign valueSave to origValue
-		// since here we aren't dealing with iterators directly.
-		valueSave = make([]byte, len(origValue))
-		copy(valueSave, origValue)
-		return nil
-	})
+	value, err := kvItem.Value()
 	if err != nil {
 		// TODO: ditto:: Propose allowing DB's Get to return errors too.
 		common.PanicCrisis(err)
 	}
-	return valueSave
-}
-
-// noUserMeta signifies blank metadata for a kv entry
-// since badger.Set accepts an optional userMeta field
-var noUserMeta byte = 0x00
-
-func panicOnErr(err error) {
-	if err != nil {
-		common.PanicCrisis(err)
-	}
+	return value
 }
 
 func (b *BadgerDB) Set(key, value []byte) {
-	b.kv.SetAsync(key, value, noUserMeta, panicOnErr)
+	b.kv.Update(func(tx *badger.Txn) error {
+		return tx.Set(key, value)
+	})
 }
 
 func (b *BadgerDB) SetSync(key, value []byte) {
-	if err := b.kv.Set(key, value, noUserMeta); err != nil {
-		common.PanicCrisis(err)
-	}
+	b.Set(key, value)
 }
 
 func (b *BadgerDB) Delete(key []byte) {
-	b.kv.DeleteAsync(key, panicOnErr)
+	b.kv.Update(func(tx *badger.Txn) error {
+		return tx.Delete(key)
+	})
 }
 
 func (b *BadgerDB) DeleteSync(key []byte) {
-	if err := b.kv.Delete(key); err != nil {
-		common.PanicCrisis(err)
-	}
+	b.kv.Update(func(tx *badger.Txn) error {
+		return tx.Delete(key)
+	})
 }
 
 func (b *BadgerDB) Close() {
-	if err := b.kv.Close(); err != nil {
-		common.PanicCrisis(err)
-	}
+	b.closeOnce.Do(func() {
+		if err := b.kv.Close(); err != nil {
+			common.PanicCrisis(err)
+		}
+	})
 }
 
 func (b *BadgerDB) Fprint(w io.Writer) {
 	bIter := b.Iterator().(*badgerDBIterator)
-
 	defer bIter.Release()
 
 	var bw *bufio.Writer
@@ -194,7 +198,8 @@ func (b *BadgerDB) Print() {
 }
 
 func (b *BadgerDB) Iterator() Iterator {
-	dbIter := b.kv.NewIterator(badger.IteratorOptions{
+	tx := b.kv.NewTransaction(readOnly)
+	dbIter := tx.NewIterator(badger.IteratorOptions{
 		PrefetchValues: true,
 
 		// Arbitrary PrefetchSize
@@ -206,7 +211,8 @@ func (b *BadgerDB) Iterator() Iterator {
 }
 
 func (b *BadgerDB) IteratorPrefix(prefix []byte) Iterator {
-	dbIter := b.kv.NewIterator(badger.IteratorOptions{
+	tx := b.kv.NewTransaction(readOnly)
+	dbIter := tx.NewIterator(badger.IteratorOptions{
 		PrefetchValues: true,
 
 		// Arbitrary PrefetchSize
@@ -222,61 +228,47 @@ func (b *BadgerDB) Stats() map[string]string {
 }
 
 func (b *BadgerDB) NewBatch() Batch {
-	return &badgerDBBatch{db: b}
+	return &badgerDBBatch{db: b.kv}
 }
 
 var _ Batch = (*badgerDBBatch)(nil)
 
 type badgerDBBatch struct {
-	entriesMu sync.Mutex
-	entries   []*badger.Entry
+	txnMu sync.Mutex
+	txn_  *badger.Txn
 
-	db *BadgerDB
+	db *badger.DB
+}
+
+func (bb *badgerDBBatch) txn() *badger.Txn {
+	bb.txnMu.Lock()
+	if bb.txn_ == nil {
+		bb.txn_ = bb.db.NewTransaction(true)
+	}
+	bb.txnMu.Unlock()
+	return bb.txn_
 }
 
 func (bb *badgerDBBatch) Set(key, value []byte) {
-	bb.entriesMu.Lock()
-	bb.entries = append(bb.entries, &badger.Entry{
-		Key:   key,
-		Value: value,
-	})
-	bb.entriesMu.Unlock()
+	bb.txn().Set(key, value)
 }
 
-// Unfortunately Badger doesn't have a batch delete
-// The closest that we can do is do a delete from the DB.
-// Hesitant to do DeleteAsync because that changes the
-// expected ordering
 func (bb *badgerDBBatch) Delete(key []byte) {
-	bb.db.Delete(key)
+	bb.txn().Delete(key)
 }
 
 // Write commits all batch sets to the DB
 func (bb *badgerDBBatch) Write() {
-	bb.entriesMu.Lock()
-	entries := bb.entries
-	bb.entries = nil
-	bb.entriesMu.Unlock()
+	bb.txnMu.Lock()
+	txn := bb.txn_
+	bb.txn_ = nil
+	bb.txnMu.Unlock()
 
-	if len(entries) == 0 {
-		return
-	}
-	if err := bb.db.kv.BatchSet(entries); err != nil {
-		common.PanicCrisis(err)
-	}
-
-	var buf *bytes.Buffer // It'll be lazily allocated when needed
-	for i, entry := range entries {
-		if err := entry.Error; err != nil {
-			if buf == nil {
-				buf = new(bytes.Buffer)
-			}
-			fmt.Fprintf(buf, "#%d: entry err: %v\n", i, err)
+	txn.Commit(func(err error) {
+		if err != nil {
+			common.PanicCrisis(err)
 		}
-	}
-	if buf != nil {
-		common.PanicCrisis(buf.String())
-	}
+	})
 }
 
 type badgerDBIterator struct {
@@ -311,33 +303,28 @@ func (bi *badgerDBIterator) Value() []byte {
 	bi.mu.Lock()
 	defer bi.mu.Unlock()
 
-	var valueSave []byte
-	err := bi.iter.Item().Value(func(origValue []byte) error {
-		valueSave = make([]byte, len(origValue))
-		copy(valueSave, origValue)
+	bItem := bi.iter.Item()
+	if bItem == nil {
 		return nil
-	})
+	}
+	value, err := bItem.Value()
 	if err != nil {
 		bi.setLastError(err)
 	}
-	return valueSave
+	return value
 }
 
 func (bi *badgerDBIterator) kv() (key, value []byte) {
-	var valueSave []byte
 	bItem := bi.iter.Item()
 	if bItem == nil {
 		return nil, nil
 	}
-	err := bItem.Value(func(origValue []byte) error {
-		valueSave = make([]byte, len(origValue))
-		copy(valueSave, origValue)
-		return nil
-	})
+	key = bItem.Key()
+	value, err := bItem.Value()
 	if err != nil {
 		bi.setLastError(err)
 	}
-	return bItem.Key(), valueSave
+	return key, value
 }
 
 func (bi *badgerDBIterator) Error() error {
@@ -354,7 +341,9 @@ func (bi *badgerDBIterator) setLastError(err error) {
 }
 
 func (bi *badgerDBIterator) Release() {
+	bi.mu.Lock()
 	bi.iter.Close()
+	bi.mu.Unlock()
 }
 
 func (bi *badgerDBIterator) rewind()     { bi.iter.Rewind() }
