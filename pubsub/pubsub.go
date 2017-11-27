@@ -58,7 +58,7 @@ type Option func(*Server)
 // provided, the resulting server's queue is unbuffered.
 func NewServer(logger log.Logger, options ...Option) *Server {
 	s := &Server{}
-	s.BaseService = *cmn.NewBaseService("PubSub", s, logger)
+	s.BaseService = *cmn.NewBaseService(logger, "PubSub", s)
 
 	for _, option := range options {
 		option(s)

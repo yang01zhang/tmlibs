@@ -80,7 +80,7 @@ type BaseService struct {
 
 // NewBaseService returns a pointer to a newly instantiated BaseService object.
 // logger can be nil and will then default to a NewNopLogger.
-func NewBaseService(name string, impl Service, logger log.Logger) *BaseService {
+func NewBaseService(logger log.Logger, name string, impl Service) *BaseService {
 	if logger == nil {
 		logger = log.NewNopLogger()
 	}
@@ -183,6 +183,6 @@ func NewQuitService(logger log.Logger, name string, impl Service) *QuitService {
 		logger.Info("QuitService is deprecated, use BaseService instead")
 	}
 	return &QuitService{
-		BaseService: *NewBaseService(name, impl, logger),
+		BaseService: *NewBaseService(logger, name, impl),
 	}
 }
