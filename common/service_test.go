@@ -10,7 +10,7 @@ func TestBaseServiceWait(t *testing.T) {
 		BaseService
 	}
 	ts := &TestService{}
-	ts.BaseService = *NewBaseService(nil, "TestService", ts)
+	ts.BaseService = *NewBaseService("TestService", ts, nil)
 	ts.Start()
 
 	go func() {
