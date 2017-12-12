@@ -2,6 +2,7 @@ package autofile
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -607,6 +608,55 @@ func (gr *GroupReader) Read(p []byte) (n int, err error) {
 			return n, err
 		} else if nn == 0 { // empty file
 			return n, err
+		}
+	}
+}
+
+// ReadBytes reads until the first occurrence of delim in the input,
+// returning a slice containing the data up to and including the delimiter. If
+// ReadBytes encounters an error before finding a delimiter, it returns the
+// data read before the error and the error itself (often io.EOF). ReadBytes
+// returns err != nil if and only if the returned data does not end in delim.
+func (gr *GroupReader) ReadBytes(delim []byte) (data []byte, err error) {
+	var b bytes.Buffer
+
+	gr.mtx.Lock()
+	defer gr.mtx.Unlock()
+
+	// Open file if not open yet
+	if gr.curReader == nil {
+		if err = gr.openFile(gr.curIndex); err != nil {
+			return nil, err
+		}
+	}
+
+	// Iterate over files until we find the delim
+	var newData []byte
+	for {
+		newData, err = gr.curReader.ReadBytes(delim[0])
+		b.Write(newData)
+		if err == io.EOF {
+			// Open the next file
+			if err1 := gr.openFile(gr.curIndex + 1); err1 != nil {
+				return b.Bytes(), err1
+			}
+		} else if err != nil { // FIXME: should we progress to next file here too?
+			return b.Bytes(), err
+		}
+		// TODO: improve algo
+		// read delim bytes left
+		if len(delim) > 1 {
+			delimLeft := make([]byte, len(delim)-1)
+			n, err1 := gr.curReader.Read(delimLeft)
+			if err1 == io.EOF {
+				return b.Bytes(), err1
+			} else if n < len(delimLeft) {
+				return b.Bytes(), io.EOF
+			}
+			b.Write(delimLeft)
+		}
+		if len(newData) > 0 {
+			return b.Bytes(), nil
 		}
 	}
 }

@@ -379,6 +379,34 @@ func TestGroupReaderRead(t *testing.T) {
 	destroyTestGroup(t, g)
 }
 
+func TestGroupReaderReadBytes(t *testing.T) {
+	g := createTestGroup(t, 0)
+	delim := []byte("\r\n")
+
+	professor := []byte("Professor Monster")
+	g.Write(professor)
+	g.Write(delim)
+	g.Flush()
+	g.RotateFile()
+	frankenstein := []byte("Frankenstein's Monster")
+	g.Write(frankenstein)
+	g.Write(delim)
+	g.Flush()
+
+	gr, err := g.NewReader(0)
+	require.NoError(t, err, "failed to create reader")
+
+	data, err := gr.ReadBytes(delim)
+	require.NoError(t, err, "failed to read data")
+	assert.Equal(t, data[0:len(professor)], professor)
+	data, err = gr.ReadBytes(delim)
+	require.NoError(t, err, "failed to read data")
+	assert.Equal(t, data[0:len(frankenstein)], frankenstein)
+
+	// Cleanup
+	destroyTestGroup(t, g)
+}
+
 // test that Read returns an error if number of bytes read < size of
 // the given slice. Subsequent call should return 0, io.EOF.
 func TestGroupReaderRead2(t *testing.T) {
