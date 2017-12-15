@@ -21,20 +21,27 @@ func testBackendGetSetDelete(t *testing.T, backend string) {
 	defer dir.Close()
 	db := NewDB("testdb", backend, dirname)
 
+	// A nonexistent key should return nil, even if the key is empty
+	require.Nil(t, db.Get([]byte("")))
+
+	// A nonexistent key should return nil, even if the key is nil
+	require.Nil(t, db.Get(nil))
+
+	// A nonexistent key should return nil.
 	key := []byte("abc")
 	require.Nil(t, db.Get(key))
 
-	// Set empty ("")
+	// Set empty value.
 	db.Set(key, []byte(""))
 	require.NotNil(t, db.Get(key))
 	require.Empty(t, db.Get(key))
 
-	// Set empty (nil)
+	// Set nil value.
 	db.Set(key, nil)
 	require.NotNil(t, db.Get(key))
 	require.Empty(t, db.Get(key))
 
-	// Delete
+	// Delete.
 	db.Delete(key)
 	require.Nil(t, db.Get(key))
 }
@@ -55,11 +62,13 @@ func assertPanics(t *testing.T, dbType, name string, fn func()) {
 }
 
 func TestBackendsNilKeys(t *testing.T) {
-	// test all backends
+
+	// Test all backends.
 	for dbType, creator := range backends {
+
+		// Setup
 		name := cmn.Fmt("test_%x", cmn.RandStr(12))
 		db, err := creator(name, "")
-		defer cleanupDBDir("", name)
 		assert.Nil(t, err)
 
 		assertPanics(t, dbType, "get", func() { db.Get(nil) })
@@ -69,17 +78,14 @@ func TestBackendsNilKeys(t *testing.T) {
 		assertPanics(t, dbType, "delete", func() { db.Delete(nil) })
 		assertPanics(t, dbType, "deletesync", func() { db.DeleteSync(nil) })
 
+		// Cleanup
 		db.Close()
+		cleanupDBDir("", name)
 	}
 }
 
 func TestGoLevelDBBackendStr(t *testing.T) {
 	name := cmn.Fmt("test_%x", cmn.RandStr(12))
-	db := NewDB(name, LevelDBBackendStr, "")
+	db := NewDB(name, GoLevelDBBackendStr, "")
 	defer cleanupDBDir("", name)
-
-	if _, ok := backends[CLevelDBBackendStr]; !ok {
-		_, ok := db.(*GoLevelDB)
-		assert.True(t, ok)
-	}
 }

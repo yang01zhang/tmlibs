@@ -50,7 +50,7 @@ func NewCLevelDB(name string, dir string) (*CLevelDB, error) {
 }
 
 func (db *CLevelDB) Get(key []byte) []byte {
-	panicNilKey(key)
+	key = nonNilBytes(key)
 	res, err := db.db.Get(db.ro, key)
 	if err != nil {
 		panic(err)
@@ -59,12 +59,13 @@ func (db *CLevelDB) Get(key []byte) []byte {
 }
 
 func (db *CLevelDB) Has(key []byte) bool {
-	panicNilKey(key)
+	// key = nonNilBytes(key)
 	panic("not implemented yet")
 }
 
 func (db *CLevelDB) Set(key []byte, value []byte) {
-	panicNilKey(key)
+	key = nonNilBytes(key)
+	value = nonNilBytes(value)
 	err := db.db.Put(db.wo, key, value)
 	if err != nil {
 		panic(err)
@@ -72,7 +73,8 @@ func (db *CLevelDB) Set(key []byte, value []byte) {
 }
 
 func (db *CLevelDB) SetSync(key []byte, value []byte) {
-	panicNilKey(key)
+	key = nonNilBytes(key)
+	value = nonNilBytes(value)
 	err := db.db.Put(db.woSync, key, value)
 	if err != nil {
 		panic(err)
@@ -80,7 +82,7 @@ func (db *CLevelDB) SetSync(key []byte, value []byte) {
 }
 
 func (db *CLevelDB) Delete(key []byte) {
-	panicNilKey(key)
+	key = nonNilBytes(key)
 	err := db.db.Delete(db.wo, key)
 	if err != nil {
 		panic(err)
@@ -88,7 +90,7 @@ func (db *CLevelDB) Delete(key []byte) {
 }
 
 func (db *CLevelDB) DeleteSync(key []byte) {
-	panicNilKey(key)
+	key = nonNilBytes(key)
 	err := db.db.Delete(db.woSync, key)
 	if err != nil {
 		panic(err)
@@ -108,7 +110,7 @@ func (db *CLevelDB) Close() {
 
 func (db *CLevelDB) Print() {
 	itr := db.Iterator(BeginningKey(), EndingKey())
-	defer itr.Release()
+	defer itr.Close()
 	for ; itr.Valid(); itr.Next() {
 		key := itr.Key()
 		value := itr.Value()
@@ -167,60 +169,88 @@ func (db *CLevelDB) Iterator(start, end []byte) Iterator {
 		itr.SeekToFirst()
 	}
 	return cLevelDBIterator{
-		itr:   itr,
-		start: start,
-		end:   end,
+		itr:       itr,
+		start:     start,
+		end:       end,
+		isReverse: false,
+		isInvalid: false,
 	}
 }
 
 func (db *CLevelDB) ReverseIterator(start, end []byte) Iterator {
-	// XXX
-	return nil
+	panic("not implemented yet") // XXX
 }
 
 var _ Iterator = (*cLevelDBIterator)(nil)
 
 type cLevelDBIterator struct {
-	itr        *levigo.Iterator
+	source     *levigo.Iterator
 	start, end []byte
+	isReverse  bool
+	isInvalid  bool
 }
 
-func (c cLevelDBIterator) Domain() ([]byte, []byte) {
-	return c.start, c.end
+func (itr cLevelDBIterator) Domain() ([]byte, []byte) {
+	return itr.start, itr.end
 }
 
-func (c cLevelDBIterator) Valid() bool {
-	c.assertNoError()
-	return c.itr.Valid()
-}
-
-func (c cLevelDBIterator) Key() []byte {
-	if !c.itr.Valid() {
-		panic("cLevelDBIterator Key() called when invalid")
+func (itr cLevelDBIterator) Valid() bool {
+	// Once invalid, forever invalid.
+	if itr.isInvalid {
+		return false
 	}
-	return c.itr.Key()
-}
 
-func (c cLevelDBIterator) Value() []byte {
-	if !c.itr.Valid() {
-		panic("cLevelDBIterator Value() called when invalid")
+	// Panic on DB error.  No way to recover.
+	itr.assertNoError()
+
+	// If source is invalid, invalid.
+	if !itr.source.Valid() {
+		itr.isInvalid = true
+		return false
 	}
-	return c.itr.Value()
-}
 
-func (c cLevelDBIterator) Next() {
-	if !c.itr.Valid() {
-		panic("cLevelDBIterator Next() called when invalid")
+	// If key is end or past it, invalid.
+	var end = itr.end
+	var key = itr.source.Key()
+	if end != nil && bytes.Compare(end, key) <= 0 {
+		itr.isInvalid = true
+		return false
 	}
-	c.itr.Next()
+
+	// It's valid.
+	return true
 }
 
-func (c cLevelDBIterator) Release() {
-	c.itr.Close()
+func (itr cLevelDBIterator) Key() []byte {
+	itr.assertNoError()
+	itr.assertIsValid()
+	return itr.source.Key()
 }
 
-func (c cLevelDBIterator) assertNoError() {
-	if err := c.itr.GetError(); err != nil {
+func (itr cLevelDBIterator) Value() []byte {
+	itr.assertNoError()
+	itr.assertIsValid()
+	return itr.source.Value()
+}
+
+func (itr cLevelDBIterator) Next() {
+	itr.assertNoError()
+	itr.assertIsValid()
+	itr.source.Next()
+}
+
+func (itr cLevelDBIterator) Close() {
+	itr.source.Close()
+}
+
+func (itr cLevelDBIterator) assertNoError() {
+	if err := itr.source.GetError(); err != nil {
 		panic(err)
+	}
+}
+
+func (itr cLevelDBIterator) assertIsValid() {
+	if !itr.Valid() {
+		panic("cLevelDBIterator is invalid")
 	}
 }

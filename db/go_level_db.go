@@ -247,10 +247,6 @@ func (it *goLevelDBIterator) Close() {
 	it.source.Release()
 }
 
-func (it *goLevelDBIterator) Release() {
-	it.source.Release()
-}
-
 func (it *goLevelDBIterator) assertNoError() {
 	if err := it.source.Error(); err != nil {
 		panic(err)

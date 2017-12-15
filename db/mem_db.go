@@ -29,14 +29,16 @@ func NewMemDB() *MemDB {
 func (db *MemDB) Get(key []byte) []byte {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
-	panicNilKey(key)
+
+	key = nonNilBytes(key)
 	return db.db[string(key)]
 }
 
 func (db *MemDB) Has(key []byte) bool {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
-	panicNilKey(key)
+
+	key = nonNilBytes(key)
 	_, ok := db.db[string(key)]
 	return ok
 }
@@ -44,43 +46,41 @@ func (db *MemDB) Has(key []byte) bool {
 func (db *MemDB) Set(key []byte, value []byte) {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
-	panicNilKey(key)
+
 	db.SetNoLock(key, value)
 }
 
 func (db *MemDB) SetSync(key []byte, value []byte) {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
-	panicNilKey(key)
+
 	db.SetNoLock(key, value)
 }
 
 // NOTE: Implements atomicSetDeleter
 func (db *MemDB) SetNoLock(key []byte, value []byte) {
-	if value == nil {
-		value = []byte{}
-	}
-	panicNilKey(key)
+	key = nonNilBytes(key)
+	value = nonNilBytes(value)
 	db.db[string(key)] = value
 }
 
 func (db *MemDB) Delete(key []byte) {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
-	panicNilKey(key)
-	delete(db.db, string(key))
+
+	db.DeleteNoLock(key)
 }
 
 func (db *MemDB) DeleteSync(key []byte) {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
-	panicNilKey(key)
-	delete(db.db, string(key))
+
+	db.DeleteNoLock(key)
 }
 
 // NOTE: Implements atomicSetDeleter
 func (db *MemDB) DeleteNoLock(key []byte) {
-	panicNilKey(key)
+	key = nonNilBytes(key)
 	delete(db.db, string(key))
 }
 
@@ -168,17 +168,20 @@ func (db *MemDB) getSortedKeys(start, end []byte) []string {
 var _ Iterator = (*memDBIterator)(nil)
 
 type memDBIterator struct {
-	cur        int
-	keys       []string
-	db         DB
-	start, end []byte
+	cur    int
+	keys   []string
+	values []string
+	start  []byte
+	end    []byte
 }
 
-func newMemDBIterator(db DB, start, end []byte) *memDBIterator {
+func newMemDBIterator(keys, values, start, end []byte) *memDBIterator {
 	return &memDBIterator{
-		db:    db,
-		start: start,
-		end:   end,
+		cur:    0,
+		keys:   keys,
+		values: values,
+		start:  start,
+		end:    end,
 	}
 }
 
@@ -191,31 +194,18 @@ func (it *memDBIterator) Valid() bool {
 }
 
 func (it *memDBIterator) Next() {
-	if !it.Valid() {
-		panic("memDBIterator Next() called when invalid")
-	}
+	it.assertIsValid()
 	it.cur++
 }
 
-func (it *memDBIterator) Prev() {
-	if !it.Valid() {
-		panic("memDBIterator Next() called when invalid")
-	}
-	it.cur--
-}
-
 func (it *memDBIterator) Key() []byte {
-	if !it.Valid() {
-		panic("memDBIterator Key() called when invalid")
-	}
+	it.assertIsValid()
 	return []byte(it.keys[it.cur])
 }
 
 func (it *memDBIterator) Value() []byte {
-	if !it.Valid() {
-		panic("memDBIterator Value() called when invalid")
-	}
-	return it.db.Get(it.Key())
+	it.assertIsValid()
+	return []byte(it.values[it.cur])
 }
 
 func (it *memDBIterator) Close() {
@@ -223,4 +213,8 @@ func (it *memDBIterator) Close() {
 	it.keys = nil
 }
 
-func (it *memDBIterator) Release() {}
+func (it *memDBIterator) assertIsValid() {
+	if !it.Valid() {
+		panic("memDBIterator invalid")
+	}
+}
