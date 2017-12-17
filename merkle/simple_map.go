@@ -54,7 +54,9 @@ func (sm *SimpleMap) Sort() {
 // CONTRACT: The returned slice must not be mutated.
 func (sm *SimpleMap) KVPairs() cmn.KVPairs {
 	sm.Sort()
-	return sm.kvs
+	kvs := make(cmn.KVPairs, len(sm.kvs))
+	copy(kvs, sm.kvs)
+	return kvs
 }
 
 //----------------------------------------
