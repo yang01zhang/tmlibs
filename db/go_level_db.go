@@ -184,7 +184,7 @@ func newGoLevelDBIterator(source iterator.Iterator, start, end []byte, isReverse
 		source:    source,
 		start:     start,
 		end:       end,
-		isReverse: false,
+		isReverse: isReverse,
 		isInvalid: false,
 	}
 }
